@@ -1,3 +1,5 @@
+import logging
+logging.basicConfig(level=logging.WARNING)
 import re
 import mechanize
 from bs4 import BeautifulSoup
@@ -5,26 +7,25 @@ import urllib2
 from selenium import webdriver
 import time
 from bs4 import SoupStrainer
-import logging
 import json
+import pprint
 
-logging.basicConfig(level=logging.ERROR)
-
+logger = logging.getLogger("bfapi")
+	
 def get(isin):
 	logger = logging.getLogger(__name__)
 	ls_bidandask = []
-	
+	logger.debug("data type of isin is %s",type(isin))
 	if type(isin) is not list:
 		isin = [isin]
 		
 	for asset in isin:
 		try:
 			if type(asset) is str or type(asset) is unicode:
-				logger.debug("Asset: %s of type %s", asset, type(asset))
 				page = _get_asset_page(asset)
 				bidandask = _parse_asset_page(page)
 				bidandask["exchange"] = "Frankfurt"
-				logger.debug("bidandask: %s" % bidandask)
+				logger.debug("Result from parser:\n%s" % pprint.pformat(bidandask))
 				ls_bidandask.append(bidandask)
 			else:
 				logger.error('string or list of strings expected as input')
@@ -35,6 +36,8 @@ def get(isin):
 	return ls_bidandask
 
 def _get_asset_page(isin):
+	logger = logging.getLogger(__name__)
+	logger.info("get page for isin %s",isin)
 	b = mechanize.Browser()
 	b.set_handle_robots(False)
 	b.open("http://www.boerse-frankfurt.de/")
@@ -46,42 +49,44 @@ def _get_asset_page(isin):
 	page = b.submit().read()
 	return page
 	
-def asset_exists(isin):
-	page = _get_asset_page(isin)
+def asset_exists(asset):
+	logger = logging.getLogger(__name__)
+	logger.debug("check if asset exists")
+	page = _get_asset_page(asset)
 	soup = BeautifulSoup(page)
 	if not len(soup.findAll('h1',text="Suchergebnisse")) == 0:
+		logger.debug("No, the asset does not exist")
 		return False
 	else:
 		# Find ISIN
 		ISIN = soup.findAll("h4")[0]
 		pattern=re.compile("[A-z]{2}\S{10}")
 		ISIN = pattern.search(str(ISIN)).group(0)
-		logging.info("Asset_exists found the following ISIN: %s",ISIN)
+		logger.info("I found the ISIN %s for your asset %s",ISIN, asset)
 		return ISIN
 
 def _parse_asset_page(page):
-	nothing_found = "no data"
 	logger = logging.getLogger(__name__)
-	logger.debug("start parsing page")
+	nothing_found = "no data"
+	logger.debug("start parsing page ...")
 	soup = BeautifulSoup(page)
 	
 	bidandask={}
-	
 
-		# Find bid and ask
+	# Find bid and ask
 	try:
 		baa = soup.findAll('td',text='Geld / Brief')[0].parent.findAll(text=re.compile('\d{1,3}[,]\d{2}'))
-		logging.debug("bid and ask (baa): %s",baa)
+		logger.debug("bid and ask (baa): %s",baa)
 
 		bidandask["ask"]= baa[0].strip()
 		bidandask["bid"]= baa[1].strip()
 
 		# Find time and date
 		timeanddate = soup.findAll('td',text='Zeit')[0].parent.findAll(text=re.compile("\d"))
-		
 		bidandask["date"]= timeanddate[0].strip()
 		bidandask["time"]= timeanddate[1].strip()
 	except:
+		logger.warning("no data for Geld / Brief")
 		bidandask["date"]= nothing_found
 		bidandask["time"]= nothing_found
 		bidandask["ask"]= nothing_found
@@ -92,6 +97,7 @@ def _parse_asset_page(page):
 		TER=soup.findAll('td',text=re.compile('Gesamtkostenquote'))[0].parent.findAll(text=re.compile("\d{1,2}[,]\d{1,2}%"))
 		bidandask["TER"]= TER[0].strip()
 	except:
+		logger.warning("TER not found")
 		bidandask["TER"]= nothing_found
 	
 	# Find NAV
@@ -99,6 +105,7 @@ def _parse_asset_page(page):
 		NAV= soup.findAll('td',text=re.compile('In Millionen Euro'))[0].parent.findAll(text=re.compile("\d"))
 		bidandask["NAV"]= NAV[0].strip()
 	except:
+		logger.warning("NAV not found")
 		bidandask["NAV"]= nothing_found
 	
 	# Find CUR
@@ -106,6 +113,7 @@ def _parse_asset_page(page):
 		CUR=soup.findAll('td',text=re.compile('Handelsw.'))[0].parent.findAll(text=re.compile("[A-Z]{2,3}"))
 		bidandask["CUR"]= CUR[0].strip()
 	except:
+		logger.warning("CUR not found")
 		bidandask["CUR"]= nothing_found
 	
 	# Find ISIN
@@ -115,6 +123,7 @@ def _parse_asset_page(page):
 		ISIN = pattern.search(str(ISIN)).group(0)
 		bidandask["ISIN"] = unicode(ISIN)
 	except:
+		logger.warning("ISIN not found")
 		bidandask["ISIN"] = nothing_found
 		
 	# Find Name
@@ -122,6 +131,7 @@ def _parse_asset_page(page):
 		Name = soup.findAll("h1")[1].findAll(text=True)[0]
 		bidandask["Name"] = Name.strip()	
 	except:
+		logger.warning("Name not found")
 		bidandask["Name"] = nothing_found
 	
 	# Find Max.Spread
@@ -129,6 +139,7 @@ def _parse_asset_page(page):
 		max_Spread = soup.findAll('td',text=re.compile('Max. Spread'))[0].parent.findAll(text=re.compile("\d{1,2}[,]\d{1,2}%"))
 		bidandask["Max. Spread"]= max_Spread[0].strip()
 	except:
+		logger.warning("Max. Spread not found")
 		bidandask["Max. Spread"] = nothing_found
 		
 	# Product Family
@@ -136,6 +147,7 @@ def _parse_asset_page(page):
 		product_family = soup.findAll('td',text=re.compile('Produktfamilie'))[0].parent.findAll(text=True)
 		bidandask["product_family"]= product_family[3].strip()	
 	except:
+		logger.warning("product family not found")
 		bidandask["product_family"]=nothing_found
 	
 	# Ertragsverwendung
@@ -143,6 +155,7 @@ def _parse_asset_page(page):
 		ertragsverwendung = soup.findAll('td',text=re.compile('Ertragsverwendung'))[0].parent.findAll(text=True)
 		bidandask["Ertragsverwendung"]= ertragsverwendung[3].strip()		
 	except:
+		logger.warning("Ertragsverwendung not found")
 		bidandask["Ertragsverwendung"]= nothing_found
 		
 	# Art der Indexabbildung
@@ -150,9 +163,10 @@ def _parse_asset_page(page):
 		art_der_indexabbildung = soup.findAll('td',text=re.compile('Art der Indexabbildung'))[0].parent.findAll(text=True)
 		bidandask["Art der Indexabbildung"]= art_der_indexabbildung[3].strip()
 	except:
+		logger.warning("Art der Indexabbildung not found")
 		bidandask["Art der Indexabbildung"]=nothing_found	
 	
-	logger.debug("end parsing page")
+	logger.debug("finished parsing page")
 	return bidandask
 	
 def get_dict_of_all_etfs():
@@ -180,6 +194,7 @@ def get_dict_of_all_etfs():
 	return etfs
 
 def _get_html_list_of_etfs(URL):
+	logger = logging.getLogger(__name__)
 	browser = webdriver.Firefox()
 	browser.implicitly_wait(10);
 	browser.get(URL)
@@ -199,7 +214,7 @@ def _parse_html_list_of_etfs(html):
 			etf=element.findAll(text=True)
 			etfs.update({etf[0]:etf[1]})
 		except:
-			logger.error("one or more entries could not be parsed")
+			logger.warning("one or more entries could not be parsed")
 			next
 	return(etfs)
 
