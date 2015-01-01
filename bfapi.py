@@ -15,11 +15,8 @@ def get(isin):
 	ls_bidandask = []
 	
 	if type(isin) is not list:
-		if type(isin) is str:
-			isin = [isin]
-		else:
-			logger.error("string or list of strings expected as input")
-			return
+		isin = [isin]
+		
 	for asset in isin:
 		try:
 			if type(asset) is str or type(asset) is unicode:
