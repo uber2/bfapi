@@ -12,6 +12,7 @@ import pprint
 logger = logging.getLogger("bfapi")
 	
 def get(isin):
+	"""Main Function: downloads market data from Deutsche Boerse for one ISIN or a list of ISINs."""
 	logger = logging.getLogger(__name__)
 	ls_bidandask = []
 	logger.debug("data type of isin is %s",type(isin))
@@ -22,10 +23,10 @@ def get(isin):
 		try:
 			if type(asset) is str or type(asset) is unicode:
 				page = _get_asset_page(asset)
-				bidandask = _parse_asset_page(page)
-				bidandask["exchange"] = "Frankfurt"
-				logger.debug("Result from parser:\n%s" % pprint.pformat(bidandask))
-				ls_bidandask.append(bidandask)
+				document = _parse_asset_page(page)
+				document["exchange"] = "Frankfurt"
+				logger.debug("Result from parser:\n%s" % pprint.pformat(document))
+				ls_bidandask.append(document)
 			else:
 				logger.error('string or list of strings expected as input')
 				return ls_bidandask
@@ -35,6 +36,7 @@ def get(isin):
 	return ls_bidandask
 
 def _get_asset_page(isin):
+	"""Downloads the source of the asset's web page."""
 	logger = logging.getLogger(__name__)
 	logger.info("get page for isin %s",isin)
 	b = mechanize.Browser()
@@ -49,6 +51,7 @@ def _get_asset_page(isin):
 	return page
 	
 def asset_exists(asset):
+	"""Checks if an asset has a proper web-page at Deutsche Boerse"""
 	logger = logging.getLogger(__name__)
 	logger.debug("check if asset exists")
 	page = _get_asset_page(asset)
@@ -65,48 +68,49 @@ def asset_exists(asset):
 		return ISIN
 
 def _parse_asset_page(page):
+	"""Scraps data our of downloaded source of web page"""
 	logger = logging.getLogger(__name__)
 	nothing_found = "no data" # this value will be set whenever no value is found on the product page
 	logger.debug("start parsing page ...")
 	soup = BeautifulSoup(page)
 	
-	bidandask={}
+	document={}
 
 	# Find bid and ask
 	try:
 		baa = soup.findAll('td',text='Geld / Brief')[0].parent.findAll(text=re.compile('\d{1,3}[,]\d{2}'))
 		logger.debug("bid and ask (baa): %s",baa)
 
-		bidandask["ask"]= baa[0].strip()
-		bidandask["bid"]= baa[1].strip()
+		document["ask"]= baa[0].strip()
+		document["bid"]= baa[1].strip()
 
 		# Find time and date
 		timeanddate = soup.findAll('td',text='Zeit')[0].parent.findAll(text=re.compile("\d"))
-		bidandask["date"]= timeanddate[0].strip()
-		bidandask["time"]= timeanddate[1].strip()
+		document["date"]= timeanddate[0].strip()
+		document["time"]= timeanddate[1].strip()
 	except:
 		logger.warning("no data for Geld / Brief")
-		bidandask["date"]= nothing_found
-		bidandask["time"]= nothing_found
-		bidandask["ask"]= nothing_found
-		bidandask["bid"]= nothing_found
+		document["date"]= nothing_found
+		document["time"]= nothing_found
+		document["ask"]= nothing_found
+		document["bid"]= nothing_found
 	
 	# Find ISIN
 	try:
 		ISIN = soup.findAll("h4")[0]
 		pattern=re.compile("[A-z]{2}\S{10}")
 		ISIN = pattern.search(str(ISIN)).group(0)
-		bidandask["ISIN"] = unicode(ISIN)
+		document["ISIN"] = unicode(ISIN)
 	except:
 		logger.warning("ISIN not found")
-		bidandask["ISIN"] = nothing_found
+		document["ISIN"] = nothing_found
 		
 	# Find Name
 	try: 
-		bidandask["Name"] = soup.findAll("h1",{"class":None})[0].string	
+		document["Name"] = soup.findAll("h1",{"class":None})[0].string	
 	except:
-		logger.warning("Name for %s not found",bidandask["ISIN"])
-		bidandask["Name"] = nothing_found
+		logger.warning("Name for %s not found",document["ISIN"])
+		document["Name"] = nothing_found
 	
 	# Find data which happens to be in the first row of the tables
 	td =  ({"In Millionen Euro":"NAV",
@@ -115,10 +119,10 @@ def _parse_asset_page(page):
 			"Auflagedatum":"Launch Date"})
 	for key in td:
 		try:
-			bidandask[td[key]] = _get_column_datavalue_first(soup,key)
+			document[td[key]] = _get_column_datavalue_first(soup,key)
 		except:
 			logger.warning("_get_column_datavalue first: %s not found",key)
-			bidandask[td[key]]=nothing_found	
+			document[td[key]]=nothing_found	
 	
 	# Find data which happens NOT to be in the first row of the tables		
 	td =  ({"Kategorie":"category",
@@ -130,27 +134,32 @@ def _parse_asset_page(page):
 			"Max. Spread":"Max. Spread"})
 	for key in td:
 		try:
-			bidandask[td[key]] = _get_column_datavalue(soup,key)
+			document[td[key]] = _get_column_datavalue(soup,key)
 		except:
 			logger.warning("_get_column_datavalue: %s not found",key)
-			bidandask[td[key]]=nothing_found	
+			document[td[key]]=nothing_found	
 	
 	logger.debug("finished parsing page")
-	return bidandask
+	return document
 
-# inspection of soup shows that there are two types of table row classes: 
-# (1) right column-datavalue lastColOfRow
-# (2) right column-datavalue lastColOfRow first
+""" 
+inspection of soup shows that for a lot of the data, there are two types of table row classes: 
+# ~> "right column-datavalue lastColOfRow"
+# ~> "right column-datavalue lastColOfRow first"
 
-# (1) right column-datavalue lastColOfRow
+The two functions below extract the data for these two types from a given soup
+"""
+
 def _get_column_datavalue(soup,name):
+	"""Finds all elements with class: right column-datavalue lastColOfRow"""
 	return soup.findAll('td',text=re.compile(name))[0].parent.findAll("td",{"class":"right column-datavalue lastColOfRow "})[0].string.strip()
 
-# (2) right column-datavalue lastColOfRow first
 def _get_column_datavalue_first(soup,name):
+	"""Finds all elements with class: right column-datavalue lastColOfRow first"""
 	return soup.findAll('td',text=re.compile(name))[0].parent.findAll("td",{"class":"right column-datavalue lastColOfRow first"})[0].string.strip()
 	
 def get_dict_of_all_etfs():
+	"""returns a dictionary containing a list of etfs listed online at Deutsche Boerse"""
 	logger = logging.getLogger(__name__)
 	etfs ={}
 	ext = ({
@@ -175,6 +184,7 @@ def get_dict_of_all_etfs():
 	return etfs
 
 def _get_html_list_of_etfs(URL):
+	"""Downloads the source of a web page with selenium"""
 	logger = logging.getLogger(__name__)
 	browser = webdriver.Firefox()
 	browser.implicitly_wait(10);
@@ -185,6 +195,7 @@ def _get_html_list_of_etfs(URL):
 	return html
 
 def _parse_html_list_of_etfs(html):
+	"""Scraps ISINs and Names out of the downloaded html from Deutsche Boerse"""
 	logger = logging.getLogger(__name__)
 	soup = BeautifulSoup(html)
 	etfs={}
@@ -198,5 +209,6 @@ def _parse_html_list_of_etfs(html):
 			logger.warning("one or more entries could not be parsed")
 			next
 	return(etfs)
-
 	
+if __name__ == "__main__":
+	bfapi.get(["etf123","eunm"])
