@@ -6,7 +6,6 @@ from bs4 import BeautifulSoup
 import urllib2
 from selenium import webdriver
 import time
-from bs4 import SoupStrainer
 import json
 import pprint
 
@@ -67,7 +66,7 @@ def asset_exists(asset):
 
 def _parse_asset_page(page):
 	logger = logging.getLogger(__name__)
-	nothing_found = "no data"
+	nothing_found = "no data" # this value will be set whenever no value is found on the product page
 	logger.debug("start parsing page ...")
 	soup = BeautifulSoup(page)
 	
@@ -91,30 +90,6 @@ def _parse_asset_page(page):
 		bidandask["time"]= nothing_found
 		bidandask["ask"]= nothing_found
 		bidandask["bid"]= nothing_found
-		
-	# Find TER
-	try:
-		TER=soup.findAll('td',text=re.compile('Gesamtkostenquote'))[0].parent.findAll(text=re.compile("\d{1,2}[,]\d{1,2}%"))
-		bidandask["TER"]= TER[0].strip()
-	except:
-		logger.warning("TER not found")
-		bidandask["TER"]= nothing_found
-	
-	# Find NAV
-	try:
-		NAV= soup.findAll('td',text=re.compile('In Millionen Euro'))[0].parent.findAll(text=re.compile("\d"))
-		bidandask["NAV"]= NAV[0].strip()
-	except:
-		logger.warning("NAV not found")
-		bidandask["NAV"]= nothing_found
-	
-	# Find CUR
-	try:
-		CUR=soup.findAll('td',text=re.compile('Handelsw.'))[0].parent.findAll(text=re.compile("[A-Z]{2,3}"))
-		bidandask["CUR"]= CUR[0].strip()
-	except:
-		logger.warning("CUR not found")
-		bidandask["CUR"]= nothing_found
 	
 	# Find ISIN
 	try:
@@ -128,46 +103,52 @@ def _parse_asset_page(page):
 		
 	# Find Name
 	try: 
-		Name = soup.findAll("h1")[1].findAll(text=True)[0]
-		bidandask["Name"] = Name.strip()	
+		bidandask["Name"] = soup.findAll("h1",{"class":None})[0].string	
 	except:
-		logger.warning("Name not found")
+		logger.warning("Name for %s not found",bidandask["ISIN"])
 		bidandask["Name"] = nothing_found
 	
-	# Find Max.Spread
-	try:
-		max_Spread = soup.findAll('td',text=re.compile('Max. Spread'))[0].parent.findAll(text=re.compile("\d{1,2}[,]\d{1,2}%"))
-		bidandask["Max. Spread"]= max_Spread[0].strip()
-	except:
-		logger.warning("Max. Spread not found")
-		bidandask["Max. Spread"] = nothing_found
-		
-	# Product Family
-	try:
-		product_family = soup.findAll('td',text=re.compile('Produktfamilie'))[0].parent.findAll(text=True)
-		bidandask["product_family"]= product_family[3].strip()	
-	except:
-		logger.warning("product family not found")
-		bidandask["product_family"]=nothing_found
+	# Find data which happens to be in the first row of the tables
+	td =  ({"In Millionen Euro":"NAV",
+			"Handelsw":"CUR",
+			"Anlageklasse":"Asset Class",
+			"Auflagedatum":"Launch Date"})
+	for key in td:
+		try:
+			bidandask[td[key]] = _get_column_datavalue_first(soup,key)
+		except:
+			logger.warning("_get_column_datavalue first: %s not found",key)
+			bidandask[td[key]]=nothing_found	
 	
-	# Ertragsverwendung
-	try:
-		ertragsverwendung = soup.findAll('td',text=re.compile('Ertragsverwendung'))[0].parent.findAll(text=True)
-		bidandask["Ertragsverwendung"]= ertragsverwendung[3].strip()		
-	except:
-		logger.warning("Ertragsverwendung not found")
-		bidandask["Ertragsverwendung"]= nothing_found
-		
-	# Art der Indexabbildung
-	try:
-		art_der_indexabbildung = soup.findAll('td',text=re.compile('Art der Indexabbildung'))[0].parent.findAll(text=True)
-		bidandask["Art der Indexabbildung"]= art_der_indexabbildung[3].strip()
-	except:
-		logger.warning("Art der Indexabbildung not found")
-		bidandask["Art der Indexabbildung"]=nothing_found	
+	# Find data which happens NOT to be in the first row of the tables		
+	td =  ({"Kategorie":"category",
+			"Region/Land":"region/country",
+			"Art der Indexabbildung":"replication type",
+			"Ertragsverwendung":"use of profits",
+			"Produktfamilie":"product family",
+			"Gesamtkostenquote":"TER",
+			"Max. Spread":"Max. Spread"})
+	for key in td:
+		try:
+			bidandask[td[key]] = _get_column_datavalue(soup,key)
+		except:
+			logger.warning("_get_column_datavalue: %s not found",key)
+			bidandask[td[key]]=nothing_found	
 	
 	logger.debug("finished parsing page")
 	return bidandask
+
+# inspection of soup shows that there are two types of table row classes: 
+# (1) right column-datavalue lastColOfRow
+# (2) right column-datavalue lastColOfRow first
+
+# (1) right column-datavalue lastColOfRow
+def _get_column_datavalue(soup,name):
+	return soup.findAll('td',text=re.compile(name))[0].parent.findAll("td",{"class":"right column-datavalue lastColOfRow "})[0].string.strip()
+
+# (2) right column-datavalue lastColOfRow first
+def _get_column_datavalue_first(soup,name):
+	return soup.findAll('td',text=re.compile(name))[0].parent.findAll("td",{"class":"right column-datavalue lastColOfRow first"})[0].string.strip()
 	
 def get_dict_of_all_etfs():
 	logger = logging.getLogger(__name__)
