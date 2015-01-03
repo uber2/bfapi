@@ -98,19 +98,19 @@ def _parse_asset_page(page):
 		baa = soup.findAll('td',text='Geld / Brief')[0].parent.findAll(text=re.compile('\d{1,3}[,]\d{2}'))
 		logger.debug("bid and ask (baa): %s",baa)
 
-		document["RT ask"]= baa[0].strip()
-		document["RT bid"]= baa[1].strip()
+		document["Realtime ask"]= baa[0].strip()
+		document["Realtime bid"]= baa[1].strip()
 
 		# Find time and date
 		timeanddate = soup.findAll('td',text='Zeit')[0].parent.findAll(text=re.compile("\d"))
-		document["RT date"]= timeanddate[0].strip()
-		document["RT time"]= timeanddate[1].strip()
+		document["Realtime date"]= timeanddate[0].strip()
+		document["Realtime time"]= timeanddate[1].strip()
 	except:
 		logger.warning("no data for Geld / Brief for asset %s: %s",document["ISIN"],document["Name"])
-		document["RT date"]= nothing_found
-		document["RT time"]= nothing_found
-		document["RT ask"]= nothing_found
-		document["RT bid"]= nothing_found
+		document["Realtime date"]= nothing_found
+		document["Realtime time"]= nothing_found
+		document["Realtime ask"]= nothing_found
+		document["Realtime bid"]= nothing_found
 	
 	# Last Price Xetra & Frankfurt
 	try:
