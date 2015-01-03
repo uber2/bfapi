@@ -98,19 +98,39 @@ def _parse_asset_page(page):
 		baa = soup.findAll('td',text='Geld / Brief')[0].parent.findAll(text=re.compile('\d{1,3}[,]\d{2}'))
 		logger.debug("bid and ask (baa): %s",baa)
 
-		document["ask"]= baa[0].strip()
-		document["bid"]= baa[1].strip()
+		document["RT ask"]= baa[0].strip()
+		document["RT bid"]= baa[1].strip()
 
 		# Find time and date
 		timeanddate = soup.findAll('td',text='Zeit')[0].parent.findAll(text=re.compile("\d"))
-		document["date"]= timeanddate[0].strip()
-		document["time"]= timeanddate[1].strip()
+		document["RT date"]= timeanddate[0].strip()
+		document["RT time"]= timeanddate[1].strip()
 	except:
 		logger.warning("no data for Geld / Brief for asset %s: %s",document["ISIN"],document["Name"])
-		document["date"]= nothing_found
-		document["time"]= nothing_found
-		document["ask"]= nothing_found
-		document["bid"]= nothing_found
+		document["RT date"]= nothing_found
+		document["RT time"]= nothing_found
+		document["RT ask"]= nothing_found
+		document["RT bid"]= nothing_found
+	
+	# Last Price Xetra & Frankfurt
+	try:
+		last_price = soup.findAll("b",text="Letzter Preis")[0].parent.parent.findAll("span")
+		document["last price Xetra"]=last_price[0].string
+		document["last price Frankfurt"]=last_price[1].string
+	except:
+		logger.warning("no data for Last Price for asset %s: %s",document["ISIN"],document["Name"])
+		document["last price Xetra"]= nothing_found
+		document["last price Frankfurt"]= nothing_found
+		
+	try:
+		last_date = soup.findAll("span",text="Datum, Zeit")[0].parent.parent.findAll("span")
+		document["last price date"]= last_date[1].string
+		document["last price time"]= last_date[2].string
+	except:
+		logger.warning("no data for Last Price Date or Time for asset %s: %s",document["ISIN"],document["Name"])
+		document["last price date"]= nothing_found
+		document["last price time"]= nothing_found
+		
 	
 	# Find data which happens to be in the first row of the tables
 	td =  ({"In Millionen Euro":"NAV",
@@ -211,4 +231,4 @@ def _parse_html_list_of_etfs(html):
 	return(etfs)
 	
 if __name__ == "__main__":
-	bfapi.get(["etf123","eunm"])
+	print(pprint.pformat(get(["etf123","eunm"])))
