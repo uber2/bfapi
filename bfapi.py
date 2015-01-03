@@ -18,7 +18,7 @@ def get(isin):
 	logger.debug("data type of isin is %s",type(isin))
 	if type(isin) is not list:
 		isin = [isin]
-		
+	
 	for asset in isin:
 		try:
 			if type(asset) is str or type(asset) is unicode:
@@ -38,7 +38,7 @@ def get(isin):
 def _get_asset_page(isin):
 	"""Downloads the source of the asset's web page."""
 	logger = logging.getLogger(__name__)
-	logger.info("get page for isin %s",isin)
+	logger.debug("get page for isin %s",isin)
 	b = mechanize.Browser()
 	b.set_handle_robots(False)
 	b.open("http://www.boerse-frankfurt.de/")
@@ -76,25 +76,6 @@ def _parse_asset_page(page):
 	
 	document={}
 
-	# Find bid and ask
-	try:
-		baa = soup.findAll('td',text='Geld / Brief')[0].parent.findAll(text=re.compile('\d{1,3}[,]\d{2}'))
-		logger.debug("bid and ask (baa): %s",baa)
-
-		document["ask"]= baa[0].strip()
-		document["bid"]= baa[1].strip()
-
-		# Find time and date
-		timeanddate = soup.findAll('td',text='Zeit')[0].parent.findAll(text=re.compile("\d"))
-		document["date"]= timeanddate[0].strip()
-		document["time"]= timeanddate[1].strip()
-	except:
-		logger.warning("no data for Geld / Brief")
-		document["date"]= nothing_found
-		document["time"]= nothing_found
-		document["ask"]= nothing_found
-		document["bid"]= nothing_found
-	
 	# Find ISIN
 	try:
 		ISIN = soup.findAll("h4")[0]
@@ -112,6 +93,25 @@ def _parse_asset_page(page):
 		logger.warning("Name for %s not found",document["ISIN"])
 		document["Name"] = nothing_found
 	
+	# Find bid and ask
+	try:
+		baa = soup.findAll('td',text='Geld / Brief')[0].parent.findAll(text=re.compile('\d{1,3}[,]\d{2}'))
+		logger.debug("bid and ask (baa): %s",baa)
+
+		document["ask"]= baa[0].strip()
+		document["bid"]= baa[1].strip()
+
+		# Find time and date
+		timeanddate = soup.findAll('td',text='Zeit')[0].parent.findAll(text=re.compile("\d"))
+		document["date"]= timeanddate[0].strip()
+		document["time"]= timeanddate[1].strip()
+	except:
+		logger.warning("no data for Geld / Brief for asset %s: %s",document["ISIN"],document["Name"])
+		document["date"]= nothing_found
+		document["time"]= nothing_found
+		document["ask"]= nothing_found
+		document["bid"]= nothing_found
+	
 	# Find data which happens to be in the first row of the tables
 	td =  ({"In Millionen Euro":"NAV",
 			"Handelsw":"CUR",
@@ -121,7 +121,7 @@ def _parse_asset_page(page):
 		try:
 			document[td[key]] = _get_column_datavalue_first(soup,key)
 		except:
-			logger.warning("_get_column_datavalue first: %s not found",key)
+			logger.warning("_get_column_datavalue first: %s not found for asset %s: %s",key,document["ISIN"],document["Name"])
 			document[td[key]]=nothing_found	
 	
 	# Find data which happens NOT to be in the first row of the tables		
@@ -136,7 +136,7 @@ def _parse_asset_page(page):
 		try:
 			document[td[key]] = _get_column_datavalue(soup,key)
 		except:
-			logger.warning("_get_column_datavalue: %s not found",key)
+			logger.warning("_get_column_datavalue: %s not found for asset %s: %s",key,document["ISIN"],document["Name"])
 			document[td[key]]=nothing_found	
 	
 	logger.debug("finished parsing page")
