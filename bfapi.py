@@ -24,7 +24,6 @@ def get(isin):
 			if type(asset) is str or type(asset) is unicode:
 				page = _get_asset_page(asset)
 				document = _parse_asset_page(page)
-				document["exchange"] = "Frankfurt"
 				logger.debug("Result from parser:\n%s" % pprint.pformat(document))
 				ls_bidandask.append(document)
 			else:
@@ -76,7 +75,7 @@ def _parse_asset_page(page):
 	
 	document={}
 
-	# Find ISIN
+	# ISIN
 	try:
 		ISIN = soup.findAll("h4")[0]
 		pattern=re.compile("[A-z]{2}\S{10}")
@@ -86,14 +85,14 @@ def _parse_asset_page(page):
 		logger.warning("ISIN not found")
 		document["ISIN"] = nothing_found
 		
-	# Find Name
+	# Name
 	try: 
 		document["Name"] = soup.findAll("h1",{"class":None})[0].string	
 	except:
 		logger.warning("Name for %s not found",document["ISIN"])
 		document["Name"] = nothing_found
 	
-	# Find bid and ask
+	# Realtime bid, ask, date and time
 	try:
 		baa = soup.findAll('td',text='Geld / Brief')[0].parent.findAll(text=re.compile('\d{1,3}[,]\d{2}'))
 		logger.debug("bid and ask (baa): %s",baa)
@@ -116,10 +115,13 @@ def _parse_asset_page(page):
 	try:
 		last_price = soup.findAll("b",text="Letzter Preis")[0].parent.parent.findAll("span")
 		document["last price Xetra"]=last_price[0].string
+	except:
+		logger.warning("no data for Last Price Xetra for asset %s: %s",document["ISIN"],document["Name"])
+		document["last price Xetra"]= nothing_found	
+	try:
 		document["last price Frankfurt"]=last_price[1].string
 	except:
-		logger.warning("no data for Last Price for asset %s: %s",document["ISIN"],document["Name"])
-		document["last price Xetra"]= nothing_found
+		logger.warning("no data for Last Price Frankfurt for asset %s: %s",document["ISIN"],document["Name"])
 		document["last price Frankfurt"]= nothing_found
 		
 	try:
@@ -132,11 +134,12 @@ def _parse_asset_page(page):
 		document["last price time"]= nothing_found
 		
 	
-	# Find data which happens to be in the first row of the tables
+	# Class: right column-datavalue lastColOfRow first
 	td =  ({"In Millionen Euro":"NAV",
 			"Handelsw":"CUR",
 			"Anlageklasse":"Asset Class",
-			"Auflagedatum":"Launch Date"})
+			"Auflagedatum":"Launch Date",
+			"Xetra Liquid":"Xetra Liquidity"})
 	for key in td:
 		try:
 			document[td[key]] = _get_column_datavalue_first(soup,key)
@@ -144,14 +147,15 @@ def _parse_asset_page(page):
 			logger.warning("_get_column_datavalue first: %s not found for asset %s: %s",key,document["ISIN"],document["Name"])
 			document[td[key]]=nothing_found	
 	
-	# Find data which happens NOT to be in the first row of the tables		
+	# Class: right column-datavalue lastColOfRow		
 	td =  ({"Kategorie":"category",
 			"Region/Land":"region/country",
 			"Art der Indexabbildung":"replication type",
 			"Ertragsverwendung":"use of profits",
 			"Produktfamilie":"product family",
 			"Gesamtkostenquote":"TER",
-			"Max. Spread":"Max. Spread"})
+			"Max. Spread":"Max. Spread",
+			"Stand":"NAV Date"})
 	for key in td:
 		try:
 			document[td[key]] = _get_column_datavalue(soup,key)
@@ -159,16 +163,24 @@ def _parse_asset_page(page):
 			logger.warning("_get_column_datavalue: %s not found for asset %s: %s",key,document["ISIN"],document["Name"])
 			document[td[key]]=nothing_found	
 	
+	# Class: column-datavalue1 right
+	td = {"Tageshoch":"High","Tagestief":"Low","52-Wochenhoch":"52-week-High","52-Wochentief":"52-week-Low","Handelszeiten":"Trading Hours","Umsatz in":"Traded Units","Tagesumsatz":"Turnover in Euro","Preisfeststellungen":"Price Fixings"}	
+	
+	for key in td:
+		try:
+			helper = _get_column_datavalue1_right(soup,key)
+			document["Xetra " + td[key]]=helper[0].string.strip()
+		except:
+			logger.warning("_get_column_datavalue1_right (Xetra): %s not found for asset %s: %s",key,document["ISIN"],document["Name"])
+			document["Xetra " + td[key]]= nothing_found	
+		try:
+			document["Frankfurt " + td[key]]=helper[1].string.strip()
+		except:
+			logger.warning("_get_column_datavalue1_right (Frankfurt): %s not found for asset %s: %s",key,document["ISIN"],document["Name"])
+			document["Frankfurt " + td[key]]= nothing_found	
+		
 	logger.debug("finished parsing page")
 	return document
-
-""" 
-inspection of soup shows that for a lot of the data, there are two types of table row classes: 
-# ~> "right column-datavalue lastColOfRow"
-# ~> "right column-datavalue lastColOfRow first"
-
-The two functions below extract the data for these two types from a given soup
-"""
 
 def _get_column_datavalue(soup,name):
 	"""Finds all elements with class: right column-datavalue lastColOfRow"""
@@ -177,6 +189,10 @@ def _get_column_datavalue(soup,name):
 def _get_column_datavalue_first(soup,name):
 	"""Finds all elements with class: right column-datavalue lastColOfRow first"""
 	return soup.findAll('td',text=re.compile(name))[0].parent.findAll("td",{"class":"right column-datavalue lastColOfRow first"})[0].string.strip()
+
+def _get_column_datavalue1_right(soup,name):
+	"""Finds all elements with class: right column-datavalue1 right"""
+	return soup.findAll("span",text=re.compile(name))[0].parent.parent.findAll("span")[1:3]
 	
 def get_dict_of_all_etfs():
 	"""returns a dictionary containing a list of etfs listed online at Deutsche Boerse"""
@@ -231,4 +247,4 @@ def _parse_html_list_of_etfs(html):
 	return(etfs)
 	
 if __name__ == "__main__":
-	print(pprint.pformat(get(["etf123","eunm"])))
+	print(pprint.pformat(get(["etf123","eunm","FR0010821744"])))

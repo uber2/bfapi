@@ -1,6 +1,7 @@
 *.pyc
 *.log
 test*
+lab.py
 
 # Windows image file caches
 Thumbs.db
